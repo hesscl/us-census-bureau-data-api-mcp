@@ -68,17 +68,10 @@ GEOGRAPHY_NAME="$1"
 # Build JSON payload
 JSON_PAYLOAD="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"prompts/get\",\"params\":{\"name\":\"get_population_data\",\"arguments\":{\"geography_name\":\"$GEOGRAPHY_NAME\"}}}"
 
-# Change to project directory
-cd "$PROJECT_DIR" || exit
-
-# Ensure services are running
-docker compose --profile prod up -d >/dev/null 2>&1
-sleep 3
-
 if [ "$JSON_ONLY" = false ]; then
     echo "Getting population data for: $GEOGRAPHY_NAME"
     echo ""
 fi
 
 echo "$JSON_PAYLOAD" | \
-docker exec -i -e CENSUS_API_KEY="$CENSUS_API_KEY" mcp-server node dist/index.js
+node "$(dirname "$PROJECT_DIR")/mcp-server/dist/index.js"

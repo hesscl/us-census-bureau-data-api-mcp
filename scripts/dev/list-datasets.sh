@@ -40,16 +40,9 @@ if [ -z "$CENSUS_API_KEY" ]; then
     exit 1
 fi
 
-# Change to project directory
-cd "$PROJECT_DIR" || exit
-
-# Ensure services are running
-docker compose --profile prod up -d >/dev/null 2>&1
-sleep 3
-
 if [ "$JSON_ONLY" = false ]; then
     echo "Fetching list of available Census datasets..."
 fi
 
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list-datasets","arguments":{}}}' | \
-docker exec -i -e CENSUS_API_KEY="$CENSUS_API_KEY" mcp-server node dist/index.js
+node "$(dirname "$PROJECT_DIR")/mcp-server/dist/index.js"

@@ -74,17 +74,10 @@ else
     JSON_PAYLOAD="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"resolve-geography-fips\",\"arguments\":{\"geography_name\":\"$GEOGRAPHY_NAME\"}}}"
 fi
 
-# Change to project directory
-cd "$PROJECT_DIR" || exit
-
-# Ensure services are running
-docker compose --profile prod up -d >/dev/null 2>&1
-sleep 3
-
 if [ "$JSON_ONLY" = false ]; then
     echo "Resolving geography FIPS for: $GEOGRAPHY_NAME$([ -n "$SUMMARY_LEVEL" ] && echo " (summary level: $SUMMARY_LEVEL)")"
     echo ""
 fi
 
 echo "$JSON_PAYLOAD" | \
-docker exec -i -e CENSUS_API_KEY="$CENSUS_API_KEY" mcp-server node dist/index.js
+node "$(dirname "$PROJECT_DIR")/mcp-server/dist/index.js"
