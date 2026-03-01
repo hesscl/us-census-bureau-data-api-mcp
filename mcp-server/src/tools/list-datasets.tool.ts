@@ -32,12 +32,18 @@ export class ListDatasetsTool extends BaseTool<object> {
 
   inputSchema: Tool['inputSchema'] = {
     type: 'object',
-    properties: {},
+    properties: {
+      keyword: {
+        type: 'string',
+        description:
+          'Optional filter: only return datasets whose title or identifier contains this text (case-insensitive). Use to narrow results to a topic, e.g. "income", "housing", "business patterns".',
+      },
+    },
     required: [],
   }
 
   get argsSchema() {
-    return z.object({})
+    return z.object({ keyword: z.string().optional() })
   }
 
   constructor() {
@@ -138,17 +144,31 @@ export class ListDatasetsTool extends BaseTool<object> {
     return Array.from(grouped.values())
   }
 
+  private applyKeywordFilter(
+    datasets: AggregatedResultType[],
+    keyword?: string,
+  ): AggregatedResultType[] {
+    if (!keyword) return datasets
+    const q = keyword.toLowerCase()
+    return datasets.filter(
+      (d) =>
+        d.title.toLowerCase().includes(q) ||
+        d.dataset.toLowerCase().includes(q),
+    )
+  }
+
   async toolHandler(
-    args: object,
+    args: { keyword?: string },
     apiKey: string,
   ): Promise<{ content: ToolContent[] }> {
     try {
       if (this.cachedResult && Date.now() < this.cacheExpiresAt) {
+        const results = this.applyKeywordFilter(this.cachedResult, args.keyword)
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify(this.cachedResult, (key, value) =>
+              text: JSON.stringify(results, (key, value) =>
                 value === null ? undefined : value,
               ),
             },
@@ -198,11 +218,12 @@ export class ListDatasetsTool extends BaseTool<object> {
       this.cachedResult = aggregated
       this.cacheExpiresAt = Date.now() + CACHE_TTL_MS
 
+      const results = this.applyKeywordFilter(aggregated, args.keyword)
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify(aggregated, (key, value) => {
+            text: JSON.stringify(results, (key, value) => {
               return value === null ? undefined : value
             }),
           },

@@ -51,17 +51,26 @@ describe('ListDatasetsTool', () => {
       expect(tool.requiresApiKey).toBe(true)
     })
 
-    it('should have empty input schema', () => {
+    it('should have correct input schema', () => {
       expect(tool.inputSchema).toEqual({
         type: 'object',
-        properties: {},
+        properties: {
+          keyword: {
+            type: 'string',
+            description: expect.stringContaining('filter'),
+          },
+        },
         required: [],
       })
     })
 
-    it('should have empty args schema', () => {
+    it('should have correct args schema', () => {
       const schema = tool.argsSchema
       expect(schema.safeParse({})).toEqual({ success: true, data: {} })
+      expect(schema.safeParse({ keyword: 'income' })).toEqual({
+        success: true,
+        data: { keyword: 'income' },
+      })
     })
   })
 
