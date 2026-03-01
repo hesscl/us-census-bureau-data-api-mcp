@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { FetchAggregateDataTool } from '../../../src/tools/fetch-aggregate-data.tool'
 
+const hasApiKey = !!process.env.CENSUS_API_KEY
+
 describe('FetchAggregateDataTool - Integration Tests', () => {
-  it('should fetch real ACS data', async () => {
+  it.skipIf(!hasApiKey)('should fetch real ACS data', async () => {
     const tool = new FetchAggregateDataTool()
     const datasetName = 'acs/acs1'
     const groupName = 'B17015'
@@ -25,7 +27,7 @@ describe('FetchAggregateDataTool - Integration Tests', () => {
     expect(responseText).toContain(`${groupName}`)
   }, 10000) // Longer timeout for real API calls
 
-  it('should fetch real ACS data with complex geography definitions', async () => {
+  it.skipIf(!hasApiKey)('should fetch real ACS data with complex geography definitions', async () => {
     const tool = new FetchAggregateDataTool()
     const datasetName = 'acs/acs5'
     const groupName = 'B15003'

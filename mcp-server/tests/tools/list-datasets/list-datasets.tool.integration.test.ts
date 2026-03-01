@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { ListDatasetsTool } from '../../../src/tools/list-datasets.tool'
 
+const hasApiKey = !!process.env.CENSUS_API_KEY
+
 describe('ListDatasetsTool - Integration Tests', () => {
-  it('should fetch and process real Census dataset metadata', async () => {
+  it.skipIf(!hasApiKey)('should fetch and process real Census dataset metadata', async () => {
     const tool = new ListDatasetsTool()
 
     const response = await tool.toolHandler({}, process.env.CENSUS_API_KEY)
