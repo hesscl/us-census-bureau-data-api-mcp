@@ -1,3 +1,4 @@
+import fetch from 'node-fetch'
 import { z } from 'zod'
 
 import { Tool } from '@modelcontextprotocol/sdk/types.js'
@@ -14,6 +15,9 @@ import { BaseTool } from './base.tool.js'
 
 import { ToolContent } from '../types/base.types.js'
 
+const FETCH_TIMEOUT_MS = 30_000
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+
 export const toolDescription = `
   Returns complete catalog of available U.S. Census Bureau datasets with titles, identifiers, and available years. Use this tool FIRST when users request Census data but don't specify which dataset, or when you're unsure which dataset contains the requested statistics. Essential for mapping user requests about demographics, economics, housing, business, or government data to the correct Census dataset. After receiving results, analyze the catalog to identify the best dataset match based on topic relevance and temporal scope, then explain your reasoning to the user.
 `
@@ -22,6 +26,9 @@ export class ListDatasetsTool extends BaseTool<object> {
   name = 'list-datasets'
   description = toolDescription
   readonly requiresApiKey = true
+
+  private cachedResult: AggregatedResultType[] | null = null
+  private cacheExpiresAt = 0
 
   inputSchema: Tool['inputSchema'] = {
     type: 'object',
@@ -136,13 +143,37 @@ export class ListDatasetsTool extends BaseTool<object> {
     apiKey: string,
   ): Promise<{ content: ToolContent[] }> {
     try {
-      const fetch = (await import('node-fetch')).default
-      const catalogUrl = `https://api.census.gov/data.json?key=${apiKey}`
+      if (this.cachedResult && Date.now() < this.cacheExpiresAt) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(this.cachedResult, (key, value) =>
+                value === null ? undefined : value,
+              ),
+            },
+          ],
+        }
+      }
 
-      const response = await fetch(catalogUrl)
+      const query = new URLSearchParams({ key: apiKey })
+      const catalogUrl = `https://api.census.gov/data.json?${query.toString()}`
+
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+
+      let response
+      try {
+        response = await fetch(catalogUrl, { signal: controller.signal as AbortSignal })
+      } finally {
+        clearTimeout(timeout)
+      }
+
       if (!response.ok) {
+        const body = await response.text?.().catch(() => '') ?? ''
+        const detail = body ? ` — ${body.trim()}` : ''
         return this.createErrorResponse(
-          `Failed to fetch catalog: ${response.status} ${response.statusText}`,
+          `Failed to fetch catalog: ${response.status} ${response.statusText}${detail}`,
         )
       }
 
@@ -163,6 +194,9 @@ export class ListDatasetsTool extends BaseTool<object> {
       })
 
       const aggregated = this.aggregateDatasets(simplified)
+
+      this.cachedResult = aggregated
+      this.cacheExpiresAt = Date.now() + CACHE_TTL_MS
 
       return {
         content: [

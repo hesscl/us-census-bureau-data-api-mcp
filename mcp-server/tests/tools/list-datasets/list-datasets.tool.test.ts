@@ -1,5 +1,5 @@
 // Mock node-fetch
-const mockFetch = vi.fn()
+const mockFetch = vi.hoisted(() => vi.fn())
 
 vi.mock('node-fetch', () => ({
   default: mockFetch,

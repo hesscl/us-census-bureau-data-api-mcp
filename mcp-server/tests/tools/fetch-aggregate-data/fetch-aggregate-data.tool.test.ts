@@ -1,4 +1,4 @@
-const mockFetch = vi.fn()
+const mockFetch = vi.hoisted(() => vi.fn())
 
 vi.mock('node-fetch', () => ({
   default: mockFetch,
@@ -265,9 +265,11 @@ describe('FetchAggregateDataTool', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('https://api.census.gov/data/2022/acs/acs1'),
+        expect.anything(),
       )
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('get=group%28B01001%29'),
+        expect.anything(),
       )
     })
 

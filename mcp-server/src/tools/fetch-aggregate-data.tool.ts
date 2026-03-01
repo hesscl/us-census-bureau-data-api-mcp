@@ -1,3 +1,4 @@
+import fetch from 'node-fetch'
 import { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 
@@ -14,6 +15,8 @@ import {
   datasetValidator,
   validateGeographyArgs,
 } from '../schema/validators.js'
+
+const FETCH_TIMEOUT_MS = 30_000
 
 export const toolDescription = `
   Fetches statistical data from U.S. Census Bureau datasets including population, demographics, income, housing, employment, and economic indicators. Use this tool when users request Census statistics, demographic breakdowns, or socioeconomic data for specific geographic areas. Requires a dataset identifier, year/vintage, geographic scope (state, county, tract, etc.), and specific variables or table groups. Returns structured data with proper citations for authoritative government statistics.
@@ -102,14 +105,21 @@ export class FetchAggregateDataTool extends BaseTool<TableArgs> {
     const url = `${baseUrl}?${query.toString()}`
 
     try {
-      const fetch = (await import('node-fetch')).default
-      const res = await fetch(url)
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
-      console.log(`URL Attempted: ${url}`)
+      let res
+      try {
+        res = await fetch(url, { signal: controller.signal as AbortSignal })
+      } finally {
+        clearTimeout(timeout)
+      }
 
       if (!res.ok) {
+        const body = await res.text?.().catch(() => '') ?? ''
+        const detail = body ? ` — ${body.trim()}` : ''
         return this.createErrorResponse(
-          `Census API error: ${res.status} ${res.statusText}`,
+          `Census API error: ${res.status} ${res.statusText}${detail}`,
         )
       }
 

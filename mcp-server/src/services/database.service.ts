@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'url'
 import path from 'path'
 import Database from 'better-sqlite3'
-import type { Database as DatabaseType } from 'better-sqlite3'
+import type { Database as DatabaseType, Statement } from 'better-sqlite3'
 import type { GeographySearchResultRow } from '../types/geography.types.js'
 import type { SummaryLevelRow } from '../types/summary-level.types.js'
 import type { DataTableSearchResultRow, DataTableDatasetEntry } from '../types/data-table.types.js'
@@ -90,6 +90,8 @@ interface SearchDataTablesArgs {
 export class DatabaseService {
   private static instance: DatabaseService
   private db: DatabaseType
+  private summaryLevelsCache: SummaryLevelRow[] | null = null
+  private datasetsByTableStmt: Statement
 
   private constructor() {
     const dbPath = path.join(__dirname, '../../data/census.db')
@@ -99,6 +101,22 @@ export class DatabaseService {
     // Register JS trigram similarity as a SQLite scalar function
     this.db.function('similarity', (a: unknown, b: unknown) =>
       trigramSimilarity(a as string | null, b as string | null),
+    )
+
+    // Pre-compile statement used in every searchDataTables call
+    this.datasetsByTableStmt = this.db.prepare(
+      `SELECT
+         d.dataset_id,
+         d.dataset_param,
+         y.year,
+         dtd.label  AS dtd_label,
+         dt.label   AS dt_label
+       FROM data_table_datasets dtd
+       JOIN datasets    d  ON d.id  = dtd.dataset_id
+       LEFT JOIN years  y  ON y.id  = d.year_id
+       JOIN data_tables dt ON dt.id = dtd.data_table_id
+       WHERE dtd.data_table_id = ?
+       ORDER BY y.year ASC`,
     )
   }
 
@@ -122,6 +140,8 @@ export class DatabaseService {
   // ── Summary levels ────────────────────────────────────────────────────────
 
   public getSummaryLevels(): SummaryLevelRow[] {
+    if (this.summaryLevelsCache) return this.summaryLevelsCache
+
     const rows = this.db
       .prepare(
         `SELECT id, code, name, description, get_variable, query_name, on_spine,
@@ -131,7 +151,7 @@ export class DatabaseService {
       )
       .all() as SummaryLevelDbRow[]
 
-    return rows.map((r) => ({
+    this.summaryLevelsCache = rows.map((r) => ({
       id: r.id,
       name: r.name,
       description: r.description,
@@ -145,6 +165,8 @@ export class DatabaseService {
       created_at: new Date(0),
       updated_at: new Date(0),
     }))
+
+    return this.summaryLevelsCache
   }
 
   // ── Summary level search ──────────────────────────────────────────────────
@@ -330,23 +352,8 @@ export class DatabaseService {
 
     if (matchingTables.length === 0) return []
 
-    const datasetsStmt = this.db.prepare(
-      `SELECT
-         d.dataset_id,
-         d.dataset_param,
-         y.year,
-         dtd.label  AS dtd_label,
-         dt.label   AS dt_label
-       FROM data_table_datasets dtd
-       JOIN datasets    d  ON d.id  = dtd.dataset_id
-       LEFT JOIN years  y  ON y.id  = d.year_id
-       JOIN data_tables dt ON dt.id = dtd.data_table_id
-       WHERE dtd.data_table_id = ?
-       ORDER BY y.year ASC`,
-    )
-
     return matchingTables.map((table) => {
-      const datasetRows = datasetsStmt.all(table.id) as DatasetJoinRow[]
+      const datasetRows = this.datasetsByTableStmt.all(table.id) as DatasetJoinRow[]
 
       const datasets: DataTableDatasetEntry[] = datasetRows.map((row) => {
         const entry: DataTableDatasetEntry = {

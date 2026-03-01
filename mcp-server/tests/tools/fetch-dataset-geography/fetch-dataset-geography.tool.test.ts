@@ -1,4 +1,4 @@
-const mockFetch = vi.fn()
+const mockFetch = vi.hoisted(() => vi.fn())
 
 vi.mock('node-fetch', () => ({
   default: mockFetch,
@@ -271,6 +271,7 @@ describe('FetchDatasetGeographyTool', () => {
         expect.stringContaining(
           'https://api.census.gov/data/timeseries/asm/area2012/geography.json?key=',
         ),
+        expect.anything(),
       )
     })
   })

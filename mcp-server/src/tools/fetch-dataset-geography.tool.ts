@@ -1,6 +1,9 @@
+import fetch from 'node-fetch'
 import { Tool } from '@modelcontextprotocol/sdk/types.js'
 
 import { BaseTool } from './base.tool.js'
+
+const FETCH_TIMEOUT_MS = 30_000
 import { DatabaseService } from '../services/database.service.js'
 import {
   FetchDatasetGeographyArgs,
@@ -90,7 +93,6 @@ export class FetchDatasetGeographyTool extends BaseTool<FetchDatasetGeographyArg
     const validatedRaw = GeographyJsonSchema.parse(rawGeography)
 
     if (validatedRaw.fips.length === 0) {
-      console.log('No FIPS geography data found in response')
       return []
     }
 
@@ -176,16 +178,20 @@ export class FetchDatasetGeographyTool extends BaseTool<FetchDatasetGeographyArg
 
       const geographyLevels = this.getSummaryLevels()
 
-      const fetch = (await import('node-fetch')).default
-      let year = ''
-      if (args.year) {
-        year = `${args.year}/`
-      }
-
+      const year = args.year ? `${args.year}/` : ''
       const baseUrl = `https://api.census.gov/data/${year}${args.dataset}/geography.json`
-      const geographyUrl = `${baseUrl}?key=${apiKey}`
+      const query = new URLSearchParams({ key: apiKey })
+      const geographyUrl = `${baseUrl}?${query.toString()}`
 
-      const geographyResponse = await fetch(geographyUrl)
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+
+      let geographyResponse
+      try {
+        geographyResponse = await fetch(geographyUrl, { signal: controller.signal as AbortSignal })
+      } finally {
+        clearTimeout(timeout)
+      }
 
       if (geographyResponse.ok) {
         const geographyData = await geographyResponse.json()
@@ -211,16 +217,16 @@ export class FetchDatasetGeographyTool extends BaseTool<FetchDatasetGeographyArg
             validationError instanceof Error
               ? validationError.message
               : 'Validation failed'
-          console.error('Schema validation failed:', validationMessage)
 
           return this.createErrorResponse(
             `Response validation failed: ${validationMessage}`,
           )
         }
       } else {
-        console.log(geographyResponse.status)
+        const body = await geographyResponse.text?.().catch(() => '') ?? ''
+        const detail = body ? ` — ${body.trim()}` : ''
         return this.createErrorResponse(
-          `Geography endpoint returned: ${geographyResponse.status} ${geographyResponse.statusText}`,
+          `Geography endpoint returned: ${geographyResponse.status} ${geographyResponse.statusText}${detail}`,
         )
       }
     } catch (error) {

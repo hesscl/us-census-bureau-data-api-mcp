@@ -3,7 +3,7 @@
  * No Docker or Postgres required.
  * External Census API calls are mocked; database integration uses real bundled data.
  */
-const mockFetch = vi.fn()
+const mockFetch = vi.hoisted(() => vi.fn())
 
 vi.mock('node-fetch', () => ({
   default: mockFetch,
