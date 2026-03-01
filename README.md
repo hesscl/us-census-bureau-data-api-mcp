@@ -5,8 +5,6 @@ Bringing _official_ Census Bureau statistics to AI assistants everywhere.
 
 The *U.S. Census Bureau Data API MCP* is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) server that connects AI assistants with data from the Census Data API and other official Census Bureau sources. This project is built using the [MCP Typescript SDK](https://github.com/modelcontextprotocol/typescript-sdk).
 
-> **Fork note:** This fork replaces the upstream Docker/PostgreSQL backend with a bundled SQLite database (`mcp-server/data/census.db`). No Docker or database setup is required — clone and run.
-
 ## Contents
 * [Getting Started](#getting-started)
 * [Using the MCP Server](#using-the-mcp-server)
@@ -82,7 +80,7 @@ echo '{CALL_ARGUMENTS}' | DEBUG_LOGS=true CENSUS_API_KEY=YOUR_KEY node dist/inde
 
 ### Rebuilding the SQLite database
 
-The bundled `census.db` is pre-built and checked into the repo. If you need to regenerate it from the upstream PostgreSQL source (requires a running Postgres instance seeded via `mcp-db/`):
+The bundled `census.db` is pre-built and checked into the repo. If you need to regenerate it:
 
 ```bash
 cd mcp-server
@@ -125,7 +123,7 @@ npm run lint
 * `mcp-server/src/schema/` - Zod schemas for each tool's inputs and API responses.
 * `mcp-server/src/services/database.service.ts` - SQLite singleton that powers geography and dataset search.
 * `mcp-server/data/census.db` - Bundled SQLite database (~23 MB) containing geography, summary level, and dataset metadata.
-* `mcp-server/scripts/build-sqlite.mjs` - Script to regenerate `census.db` from a Postgres source.
+* `mcp-server/scripts/build-sqlite.mjs` - Script to regenerate `census.db`.
 
 ## Available Methods
 
