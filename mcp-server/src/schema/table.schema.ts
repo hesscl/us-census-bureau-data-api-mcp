@@ -133,3 +133,16 @@ export const geoFields = {
       "Alternative geography specification using UCGID, e.g., '0400000US06', '0400000US41'.",
     ),
 }
+
+export const formatField = {
+  format: z.enum(['text', 'json']).optional(),
+}
+
+export const formatProperty = {
+  format: {
+    type: 'string',
+    enum: ['text', 'json'],
+    description:
+      'Output format: "text" (default, KEY: VALUE lines) or "json" (structured object with dataset, year, data array, and citation).',
+  },
+}

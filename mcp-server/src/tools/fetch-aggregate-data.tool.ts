@@ -19,7 +19,7 @@ import {
 const FETCH_TIMEOUT_MS = 30_000
 
 export const toolDescription = `
-  Fetches statistical data from U.S. Census Bureau datasets including population, demographics, income, housing, employment, and economic indicators. Use this tool when users request Census statistics, demographic breakdowns, or socioeconomic data for specific geographic areas. Requires a dataset identifier, year/vintage, geographic scope (state, county, tract, etc.), and specific variables or table groups. Returns structured data with proper citations for authoritative government statistics.
+  Fetches statistical data from U.S. Census Bureau datasets including population, demographics, income, housing, employment, and economic indicators. Use this tool when users request Census statistics, demographic breakdowns, or socioeconomic data for specific geographic areas. Requires a dataset identifier, year/vintage, geographic scope (state, county, tract, etc.), and specific variables or table groups. Returns structured data with proper citations for authoritative government statistics. Note: ACS 1-year (acs/acs1) data is only published for geographies with 65,000+ population. For smaller areas use acs/acs5.
 `
 
 export class FetchAggregateDataTool extends BaseTool<TableArgs> {
@@ -126,11 +126,32 @@ export class FetchAggregateDataTool extends BaseTool<TableArgs> {
       const data = (await res.json()) as string[][]
       const [headers, ...rows] = data
 
+      const citation = buildCitation(url)
+
+      if (rows.length === 0) {
+        const acs1Note = args.dataset.includes('acs1')
+          ? ' ACS 1-year estimates are only available for geographies with 65,000+ population — try acs/acs5 for smaller areas.'
+          : ''
+        return this.createSuccessResponse(
+          `The API returned no data rows for the requested geography and variables.${acs1Note}`,
+        )
+      }
+
+      if (args.format === 'json') {
+        const records = rows.map((row) =>
+          Object.fromEntries(headers.map((h, i) => [h, row[i]])),
+        )
+        const result = JSON.stringify(
+          { dataset: args.dataset, year: args.year, data: records, citation },
+          null,
+          2,
+        )
+        return this.createSuccessResponse(result)
+      }
+
       const output = rows
         .map((row) => headers.map((h, i) => `${h}: ${row[i]}`).join(', '))
         .join('\n')
-
-      const citation = buildCitation(url)
 
       return this.createSuccessResponse(
         `Response from ${args.dataset}:\n${output}\n${citation}`,

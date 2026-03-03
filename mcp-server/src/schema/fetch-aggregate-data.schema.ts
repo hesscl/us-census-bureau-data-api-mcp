@@ -3,6 +3,8 @@ import { z } from 'zod'
 import {
   baseFields,
   baseProperties,
+  formatField,
+  formatProperty,
   geoFields,
   geoProperties,
   getFields,
@@ -18,6 +20,7 @@ export const TableSchema = {
     ...yearProperty,
     ...getProperties,
     ...geoProperties,
+    ...formatProperty,
   },
   required: ['dataset', 'year', 'get'],
 }
@@ -27,6 +30,7 @@ export const FetchAggregateDataToolSchema = z.object({
   ...yearField,
   ...getFields,
   ...geoFields,
+  ...formatField,
 })
 
 export type TableArgs = z.infer<typeof FetchAggregateDataToolSchema>

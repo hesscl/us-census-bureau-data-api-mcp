@@ -28,18 +28,20 @@ That's it — no Docker, no PostgreSQL.
 ## Using the MCP Server
 1. Clone or download the project locally.
 2. Navigate to `mcp-server/` and run `npm install && npm run build`.
-3. Configure your AI Assistant to use the MCP Server (see below).
-4. Start your AI Assistant.
+3. Configure your AI assistant to use the MCP server (see below).
+4. Start your AI assistant.
 
-Here is an example configuration file that includes the appropriate scripts for launching the MCP Server:
+### Claude Code
+
+Add the following to `~/.claude/settings.json` under the `mcpServers` key, updating the path and API key:
 
 ```json
 {
   "mcpServers": {
     "mcp-census-api": {
-      "command": "bash",
+      "command": "node",
       "args": [
-        "/Path/To/Server/us-census-bureau-data-api-mcp/scripts/mcp-connect.sh"
+        "/Path/To/us-census-bureau-data-api-mcp/mcp-server/dist/index.js"
       ],
       "env": {
         "CENSUS_API_KEY": "YOUR_CENSUS_API_KEY"
@@ -49,7 +51,38 @@ Here is an example configuration file that includes the appropriate scripts for 
 }
 ```
 
-Be sure to update the path to the `us-census-bureau-data-api-mcp` directory in `args` and provide a valid `CENSUS_API_KEY`.
+You can also add it via the CLI:
+
+```bash
+claude mcp add mcp-census-api \
+  -e CENSUS_API_KEY=YOUR_CENSUS_API_KEY \
+  -- node /Path/To/us-census-bureau-data-api-mcp/mcp-server/dist/index.js
+```
+
+### Claude Desktop
+
+Add the following to your Claude Desktop config file, updating the path and API key:
+
+* **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+* **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "mcp-census-api": {
+      "command": "node",
+      "args": [
+        "/Path/To/us-census-bureau-data-api-mcp/mcp-server/dist/index.js"
+      ],
+      "env": {
+        "CENSUS_API_KEY": "YOUR_CENSUS_API_KEY"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving the config.
 
 ### Updating the MCP Server
 When a new version is released, pull the latest changes and rebuild:

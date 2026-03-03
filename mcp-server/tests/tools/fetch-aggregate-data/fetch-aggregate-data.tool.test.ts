@@ -432,9 +432,8 @@ describe('FetchAggregateDataTool', () => {
       const response = await tool.toolHandler(args, process.env.CENSUS_API_KEY)
       const responseText = response.content[0].text
 
-      expect(responseText).toContain('Response from acs/acs1:')
-      // Should not contain any data rows
-      expect(responseText.split('\n')).toHaveLength(3)
+      expect(responseText).toContain('The API returned no data rows')
+      expect(responseText).toContain('ACS 1-year estimates are only available')
     })
   })
 

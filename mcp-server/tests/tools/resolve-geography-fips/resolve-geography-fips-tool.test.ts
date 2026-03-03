@@ -118,7 +118,7 @@ describe('ResolveGeographyFipsTool', () => {
     expect(schema.type).toBe('object')
     expect(schema.properties).toHaveProperty('geography_name')
     expect(schema.properties).toHaveProperty('summary_level')
-    expect(schema.required).toEqual(['geography_name'])
+    expect(schema.required).toEqual([])
   })
 
   it('should have matching args schema', () => {

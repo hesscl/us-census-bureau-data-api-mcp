@@ -81,6 +81,18 @@ vi.mock('../src/tools/search-data-tables.tool.js', () => ({
     .mockImplementation(() => ({ name: 'search-data-tables' })),
 }))
 
+vi.mock('../src/tools/fetch-time-series.tool.js', () => ({
+  FetchTimeSerieseTool: vi
+    .fn()
+    .mockImplementation(() => ({ name: 'fetch-time-series' })),
+}))
+
+vi.mock('../src/tools/search-variables.tool.js', () => ({
+  SearchVariablesTool: vi
+    .fn()
+    .mockImplementation(() => ({ name: 'search-variables' })),
+}))
+
 vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
   StdioServerTransport: vi.fn().mockImplementation(() => ({})),
 }))
@@ -126,10 +138,14 @@ describe('main', () => {
       name: 'employment-prompt',
     })
 
-    expect(toolRegistrySpy).toHaveBeenCalledTimes(6)
+    expect(toolRegistrySpy).toHaveBeenCalledTimes(8)
 
     expect(toolRegistrySpy).toHaveBeenCalledWith({
       name: 'fetch-aggregate-data',
+    })
+
+    expect(toolRegistrySpy).toHaveBeenCalledWith({
+      name: 'fetch-time-series',
     })
 
     expect(toolRegistrySpy).toHaveBeenCalledWith({
@@ -148,6 +164,10 @@ describe('main', () => {
 
     expect(toolRegistrySpy).toHaveBeenCalledWith({
       name: 'search-data-tables',
+    })
+
+    expect(toolRegistrySpy).toHaveBeenCalledWith({
+      name: 'search-variables',
     })
 
     expect(connectSpy).toHaveBeenCalledTimes(1)

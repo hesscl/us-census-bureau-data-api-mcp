@@ -11,10 +11,12 @@ import { MCPServer } from './server.js'
 
 import { FetchAggregateDataTool } from './tools/fetch-aggregate-data.tool.js'
 import { FetchDatasetGeographyTool } from './tools/fetch-dataset-geography.tool.js'
+import { FetchTimeSerieseTool } from './tools/fetch-time-series.tool.js'
 import { ListDatasetsTool } from './tools/list-datasets.tool.js'
 import { ListVariablesTool } from './tools/list-variables.tool.js'
 import { ResolveGeographyFipsTool } from './tools/resolve-geography-fips.tool.js'
 import { SearchDataTablesTool } from './tools/search-data-tables.tool.js'
+import { SearchVariablesTool } from './tools/search-variables.tool.js'
 
 import { PopulationPrompt } from './prompts/population.prompt.js'
 import { IncomePrompt } from './prompts/income.prompt.js'
@@ -38,10 +40,12 @@ async function main() {
   // Register tools
   mcpServer.registerTool(new FetchAggregateDataTool())
   mcpServer.registerTool(new FetchDatasetGeographyTool())
+  mcpServer.registerTool(new FetchTimeSerieseTool())
   mcpServer.registerTool(new ListDatasetsTool())
   mcpServer.registerTool(new ListVariablesTool())
   mcpServer.registerTool(new ResolveGeographyFipsTool())
   mcpServer.registerTool(new SearchDataTablesTool())
+  mcpServer.registerTool(new SearchVariablesTool())
 
   const transport = new StdioServerTransport()
   await mcpServer.connect(transport)

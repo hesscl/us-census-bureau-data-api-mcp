@@ -34,6 +34,13 @@ export class ResolveGeographyFipsTool extends BaseTool<ResolveGeographyFipsArgs>
     this.dbService = DatabaseService.getInstance()
   }
 
+  private resolveOne(name: string, summaryLevelCode?: string): GeographySearchResultRow[] {
+    if (summaryLevelCode) {
+      return this.dbService.searchGeographiesBySummaryLevel(name, summaryLevelCode)
+    }
+    return this.dbService.searchGeographies(name)
+  }
+
   async toolHandler(
     args: ResolveGeographyFipsArgs,
   ): Promise<{ content: ToolContent[] }> {
@@ -44,22 +51,34 @@ export class ResolveGeographyFipsTool extends BaseTool<ResolveGeographyFipsArgs>
         )
       }
 
-      let result: GeographySearchResultRow[]
-
+      let summaryLevelCode: string | undefined
       if (args.summary_level) {
         const summaryLevels = this.dbService.searchSummaryLevels(args.summary_level)
-
-        if (summaryLevels.length > 0) {
-          result = this.dbService.searchGeographiesBySummaryLevel(
-            args.geography_name,
-            summaryLevels[0].code,
-          )
-        } else {
-          result = this.dbService.searchGeographies(args.geography_name)
-        }
-      } else {
-        result = this.dbService.searchGeographies(args.geography_name)
+        summaryLevelCode = summaryLevels[0]?.code
       }
+
+      // Batch mode
+      if (args.geography_names) {
+        const batchResults = await Promise.all(
+          args.geography_names.map(async (name) => ({
+            query: name,
+            results: this.resolveOne(name, summaryLevelCode),
+          })),
+        )
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(batchResults, null, 2),
+            },
+          ],
+        }
+      }
+
+      // Single mode
+      const name = args.geography_name!
+      const result = this.resolveOne(name, summaryLevelCode)
 
       if (result.length > 0) {
         return {
@@ -75,7 +94,7 @@ export class ResolveGeographyFipsTool extends BaseTool<ResolveGeographyFipsArgs>
           content: [
             {
               type: 'text',
-              text: `No geographies found matching "${args.geography_name}".`,
+              text: `No geographies found matching "${name}".`,
             },
           ],
         }
