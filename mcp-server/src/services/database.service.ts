@@ -301,8 +301,9 @@ export class DatabaseService {
 
       let orderBy = 'dt.data_table_id ASC'
       if (label_query) {
-        orderBy = 'similarity(dtd.label, ?) DESC, dt.data_table_id ASC'
-        params.push(label_query)
+        orderBy =
+          'CASE WHEN dtd.label LIKE ? THEN 1 ELSE 0 END DESC, similarity(dtd.label, ?) DESC, dt.data_table_id ASC'
+        params.push('%' + label_query + '%', label_query)
       }
       params.push(cap)
 
@@ -335,8 +336,9 @@ export class DatabaseService {
       const orderParams: unknown[] = []
       let orderBy = 'data_table_id ASC'
       if (label_query) {
-        orderBy = 'similarity(label, ?) DESC, data_table_id ASC'
-        orderParams.push(label_query)
+        orderBy =
+          'CASE WHEN label LIKE ? THEN 1 ELSE 0 END DESC, similarity(label, ?) DESC, data_table_id ASC'
+        orderParams.push('%' + label_query + '%', label_query)
       }
 
       matchingTables = this.db

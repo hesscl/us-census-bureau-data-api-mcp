@@ -139,7 +139,7 @@ npx vitest run --project unit
 npx vitest run --project integration
 ```
 
-A valid `CENSUS_API_KEY` is only needed for the two live-API integration tests (`fetch-aggregate-data` and `list-datasets`). All other tests run fully offline.
+A valid `CENSUS_API_KEY` is only needed for the live-API integration tests (`fetch-aggregate-data`, `fetch-time-series`, and `list-datasets`). All other tests run fully offline.
 
 To run ESLint:
 
@@ -186,6 +186,7 @@ The `fetch-aggregate-data` tool fetches aggregate data from the Census Bureau's 
 * UCGID (Optional) - Restricts geography by Uniform Census Geography Identifier, e.g. `0400000US41`
 * Predicates (Optional) - Filter options for the dataset
 * Descriptive (Optional) - Adds variable labels to the API response (default: `false`)
+* Format (Optional) - Output format: `text` (default, KEY: VALUE lines) or `json` (structured object with dataset, year, data array, and citation)
 
 ### Resolve Geography FIPS
 The `resolve-geography-fips` tool searches across all Census Bureau geographies and returns potential matches with FIPS codes and query parameters. It accepts the following arguments:
@@ -205,6 +206,26 @@ The `list-variables` tool lists available variable codes inside a Census Bureau 
 * Group (Required) - Table group ID, e.g. `B01001` or `S0101`
 * Label Query (Optional) - Filter variables by label text (case-insensitive substring match)
 * Limit (Optional) - Maximum number of variables to return (default: 50)
+
+### Search Variables
+The `search-variables` tool finds Census variable codes by concept or label within a specific dataset and year in a single call. Use this instead of calling `search-data-tables` then `list-variables` separately. It searches table groups matching your query and returns variable codes with labels ready to pass to `fetch-aggregate-data`. It requires no API key. It accepts the following arguments:
+* Dataset (Required) - The identifier of the dataset, e.g. `acs/acs5`
+* Year (Required) - The vintage of the dataset, e.g. `2023`
+* Label Query (Required) - Concept or label search term, e.g. `median household income`, `bachelor degree`
+* Limit (Optional) - Maximum number of variable results to return (default: 20, max: 100)
+
+### Fetch Time Series
+The `fetch-time-series` tool fetches the same Census variables across multiple years in parallel, enabling trend analysis. Use this when comparing or tracking Census data over time. Accepts the same dataset, variables/group, and geography parameters as `fetch-aggregate-data`, but takes a list of years instead of a single year. Returns results year-by-year with a combined citation. It accepts the following arguments:
+* Dataset (Required) - The identifier of the dataset, e.g. `acs/acs5`
+* Years (Required) - List of vintage years to fetch (1–20 years), e.g. `[2019, 2021, 2023]`
+* Get (Required) - An object with 2 optional sub-arguments:
+	* Variables (Optional) - An array of variables, e.g. `'B19013_001E'`
+	* Group (Optional) - A string returning a collection of variables, e.g. `B19013`
+* For (Optional) - Restricts geography to various levels
+* In (Optional) - Restricts geography to smaller areas than state level
+* UCGID (Optional) - Restricts geography by Uniform Census Geography Identifier, e.g. `0400000US41`
+* Predicates (Optional) - Filter options for the dataset
+* Descriptive (Optional) - Adds variable labels to the API response (default: `false`)
 
 ## Available Prompts
 Prompts are pre-built instruction templates that tell the model to work with specific tools. They are instructions, not constraints on server capability.

@@ -69,7 +69,11 @@ export class SearchVariablesTool extends BaseTool<SearchVariablesArgs> {
       if (!data.variables || typeof data.variables !== 'object') return null
 
       const variables = Object.entries(data.variables)
-        .filter(([code]) => !['for', 'in', 'ucgid'].includes(code))
+        .filter(
+          ([code]) =>
+            !['for', 'in', 'ucgid'].includes(code) &&
+            !/[EM]A$/.test(code),
+        )
         .map(([code, variable]) => ({ code, label: variable.label ?? '' }))
 
       return { group, variables }
@@ -90,22 +94,25 @@ export class SearchVariablesTool extends BaseTool<SearchVariablesArgs> {
     // Step 1: Find matching table groups from the database
     const matchingTables = this.dbService.searchDataTables({
       label_query: args.label_query,
-      limit: 5,
+      limit: 20,
     })
 
-    // Step 2: Filter to groups available for the requested dataset and year
-    const matchingGroups: Array<{ groupId: string; groupLabel: string }> = []
+    // Step 2: Filter to groups available for the requested dataset and year.
+    // Also match sub-datasets (e.g. "acs/acs5" matches "acs/acs5/subject"),
+    // and carry the actual dataset_param so we build the correct API URL.
+    const matchingGroups: Array<{ groupId: string; groupLabel: string; datasetParam: string }> = []
 
     for (const table of matchingTables) {
-      const hasMatch = table.datasets.some(
+      const matchedDs = table.datasets.find(
         (ds) =>
-          ds.dataset_param === args.dataset &&
+          (ds.dataset_param === args.dataset || ds.dataset_param.startsWith(args.dataset + '/')) &&
           (ds.year === null || ds.year === args.year),
       )
-      if (hasMatch) {
+      if (matchedDs) {
         matchingGroups.push({
           groupId: table.data_table_id,
           groupLabel: table.label,
+          datasetParam: matchedDs.dataset_param,
         })
       }
     }
@@ -121,13 +128,13 @@ export class SearchVariablesTool extends BaseTool<SearchVariablesArgs> {
 
     const groupResults = await Promise.all(
       groupsToFetch.map((g) =>
-        this.fetchGroupVariables(args.year, args.dataset, g.groupId),
+        this.fetchGroupVariables(args.year, g.datasetParam, g.groupId),
       ),
     )
 
-    // Step 4: Filter variables by label_query across all fetched groups
-    const query = args.label_query.toLowerCase()
-
+    // Step 4: Collect all variables from fetched groups — no label filter here,
+    // because variable sub-labels ("Estimate!!Total:") don't echo the concept
+    // term used to find the table group.
     const allMatches: Array<{
       variable_code: string
       label: string
@@ -140,11 +147,7 @@ export class SearchVariablesTool extends BaseTool<SearchVariablesArgs> {
       if (!result) continue
 
       const groupMeta = groupsToFetch[i]
-      const filtered = result.variables.filter((v) =>
-        v.label.toLowerCase().includes(query),
-      )
-
-      for (const v of filtered) {
+      for (const v of result.variables) {
         allMatches.push({
           variable_code: v.code,
           label: v.label,
@@ -156,7 +159,7 @@ export class SearchVariablesTool extends BaseTool<SearchVariablesArgs> {
 
     if (allMatches.length === 0) {
       return this.createSuccessResponse(
-        `No variables found matching "${args.label_query}" in the top table groups for ${args.dataset} (${args.year}).`,
+        `No variables found in the top table groups for ${args.dataset} (${args.year}).`,
       )
     }
 
