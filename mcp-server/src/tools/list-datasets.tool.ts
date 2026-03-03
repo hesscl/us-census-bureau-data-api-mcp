@@ -82,7 +82,7 @@ export class ListDatasetsTool extends BaseTool<object> {
 
     // Avoid matching vintage if it's part of a number-number pattern (like 2018-2022)
     const regex = new RegExp(
-      `(?<!\\d\\s*-\\s*)\\b${vintageStr}\\b(?!\\s*-\\s*\\d)`,
+      `(?<!\\d\\s?-\\s?)\\b${vintageStr}\\b(?!\\s?-\\s?\\d)`,
     )
 
     // Replace only the first vintage while preserving spacing

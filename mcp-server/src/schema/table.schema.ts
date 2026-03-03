@@ -81,13 +81,20 @@ export const geoProperties = {
 }
 
 //Fields
-const geographyPatternFor: RegExp = /^[a-zA-Z+\s]+:[*\d,]+$/
+const geographyPatternFor: RegExp = /^[a-zA-Z+]+:[*\d,]+$/
 const geographyPatternIn: RegExp = /^[a-zA-Z]+:[*\d,]+(?:\+[a-zA-Z]+:[*\d,]+)*$/
+
+const PREDICATE_KEY_PATTERN = /^[A-Za-z0-9_]+$/
 
 export const baseFields = {
   dataset: z.string(),
   descriptive: z.boolean().optional(),
-  predicates: z.record(z.string(), z.string()).optional(),
+  predicates: z
+    .record(
+      z.string().regex(PREDICATE_KEY_PATTERN, 'Predicate keys must be alphanumeric'),
+      z.string(),
+    )
+    .optional(),
 }
 
 export const yearField = {
@@ -112,6 +119,7 @@ export const variablesField = {
 export const geoFields = {
   for: z
     .string()
+    .max(200)
     .optional()
     .refine((val) => !val || geographyPatternFor.test(val), {
       message:
@@ -120,6 +128,7 @@ export const geoFields = {
     .describe("Geography-level restriction, e.g. 'state:01'"),
   in: z
     .string()
+    .max(200)
     .optional()
     .refine((val) => !val || geographyPatternIn.test(val), {
       message:

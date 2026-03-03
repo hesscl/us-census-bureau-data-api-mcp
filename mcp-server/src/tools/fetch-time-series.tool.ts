@@ -47,7 +47,7 @@ export class FetchTimeSerieseTool extends BaseTool<FetchTimeSeriesArgs> {
     this.handler = this.handler.bind(this)
   }
 
-  private buildQuery(args: FetchTimeSeriesArgs, year: number, apiKey: string): string {
+  private buildQuery(args: FetchTimeSeriesArgs, year: number, apiKey?: string): string {
     const baseUrl = `https://api.census.gov/data/${year}/${args.dataset}`
 
     let getParams = ''
@@ -73,7 +73,7 @@ export class FetchTimeSerieseTool extends BaseTool<FetchTimeSeriesArgs> {
 
     const descriptive = args.descriptive?.toString() ?? 'false'
     query.append('descriptive', descriptive)
-    query.append('key', apiKey)
+    if (apiKey) query.append('key', apiKey)
 
     return `${baseUrl}?${query.toString()}`
   }
@@ -140,8 +140,8 @@ export class FetchTimeSerieseTool extends BaseTool<FetchTimeSeriesArgs> {
       }
     }
 
-    // Build a single citation using the first year's URL (key redacted)
-    const firstUrl = this.buildQuery(args, args.years[0], apiKey)
+    // Build a single citation using the first year's URL (no key)
+    const firstUrl = this.buildQuery(args, args.years[0])
     const baseCitation = buildCitation(firstUrl)
     const yearsStr = args.years.join(', ')
     const citation = `${baseCitation.replace(/\/\d{4}\//, '/[YEAR]/')} — years: ${yearsStr}`
