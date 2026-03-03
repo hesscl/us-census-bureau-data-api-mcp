@@ -1,66 +1,25 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Client } from 'pg'
 
-// Mock the transform function before importing the config
-vi.mock('../../../src/schema/data-table.schema', async (importOriginal) => {
-  const actual = (await importOriginal()) as object
-  return {
-    ...actual,
-    transformDataTableData: vi.fn(),
-  }
-})
-
 import {
   DataTablesConfig,
   state,
+  isValidDataset,
+  fetchGroups,
 } from '../../../src/seeds/configs/data-tables.config'
-import { transformDataTableData } from '../../../src/schema/data-table.schema'
 
-const rawConceptData = [
-  {
-    CONCEPT_LABEL: 'NATIVITY BY LANGUAGE SPOKEN AT HOME',
-    CONCEPT_STRING: 'B16005D',
-    DATASET_STRING: 'ACSDT5Y2009',
-  },
-  {
-    CONCEPT_LABEL: 'NATIVITY BY LANGUAGE SPOKEN AT HOME',
-    CONCEPT_STRING: 'B16005D',
-    DATASET_STRING: 'ACSDT5Y2017',
-  },
-  {
-    CONCEPT_LABEL: 'MEDIAN HOUSEHOLD INCOME',
-    CONCEPT_STRING: 'B19013',
-    DATASET_STRING: 'ACSDT5Y2009',
-  },
-]
+const makeDataset = (overrides: Record<string, unknown> = {}) => ({
+  identifier: 'http://api.census.gov/data/id/ACSDT1Y2019',
+  c_dataset: ['acs', 'acs1'],
+  c_vintage: 2019,
+  c_isAggregate: true,
+  ...overrides,
+})
 
-const transformedData = {
-  dataTables: [
-    {
-      data_table_id: 'B16005D',
-      label: 'Nativity by Language Spoken at Home',
-    },
-    {
-      data_table_id: 'B19013',
-      label: 'Median Household Income',
-    },
-  ],
-  relationships: [
-    {
-      data_table_id: 'B16005D',
-      dataset_id: 'ACSDT5Y2009',
-      label: 'Nativity by Language Spoken at Home',
-    },
-    {
-      data_table_id: 'B16005D',
-      dataset_id: 'ACSDT5Y2017',
-      label: 'Nativity by Language Spoken at Home',
-    },
-    {
-      data_table_id: 'B19013',
-      dataset_id: 'ACSDT5Y2009',
-      label: 'Median Household Income',
-    },
+const mockGroupsResponse = {
+  groups: [
+    { name: 'B25032', description: 'TENURE BY UNITS IN STRUCTURE' },
+    { name: 'B19013', description: 'MEDIAN HOUSEHOLD INCOME IN THE PAST 12 MONTHS' },
   ],
 }
 
@@ -71,63 +30,219 @@ describe('DataTables Config', () => {
     mockClient = {
       query: vi.fn().mockResolvedValue({ rows: [] }),
     }
-
     state.capturedRelationships = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockGroupsResponse),
+      }),
+    )
   })
 
   afterEach(() => {
-    vi.mocked(transformDataTableData).mockClear()
+    vi.unstubAllGlobals()
   })
 
   it('should have valid configuration structure', () => {
     expect(DataTablesConfig).toBeDefined()
-    expect(DataTablesConfig.file).toBe('concept.csv')
+    expect(DataTablesConfig.url).toBe('https://api.census.gov/data/')
     expect(DataTablesConfig.table).toBe('data_tables')
     expect(DataTablesConfig.conflictColumn).toBe('data_table_id')
+    expect(DataTablesConfig.alwaysFetch).toBe(true)
     expect(DataTablesConfig.beforeSeed).toBeDefined()
     expect(DataTablesConfig.afterSeed).toBeDefined()
   })
 
+  describe('isValidDataset', () => {
+    it('accepts aggregate datasets with vintage year and c_dataset', () => {
+      expect(isValidDataset(makeDataset())).toBe(true)
+    })
+
+    it('rejects datasets without c_isAggregate', () => {
+      expect(isValidDataset(makeDataset({ c_isAggregate: false }))).toBe(false)
+      expect(isValidDataset(makeDataset({ c_isAggregate: undefined }))).toBe(false)
+    })
+
+    it('rejects datasets without c_vintage', () => {
+      expect(isValidDataset(makeDataset({ c_vintage: null }))).toBe(false)
+      expect(isValidDataset(makeDataset({ c_vintage: undefined }))).toBe(false)
+    })
+
+    it('rejects datasets with empty c_dataset array', () => {
+      expect(isValidDataset(makeDataset({ c_dataset: [] }))).toBe(false)
+    })
+
+    it('rejects non-objects', () => {
+      expect(isValidDataset(null)).toBe(false)
+      expect(isValidDataset('string')).toBe(false)
+      expect(isValidDataset(42)).toBe(false)
+    })
+  })
+
+  describe('fetchGroups', () => {
+    it('returns groups from a successful response', async () => {
+      const groups = await fetchGroups('https://api.census.gov/data/2019/acs/acs1/groups.json')
+      expect(groups).toEqual(mockGroupsResponse.groups)
+    })
+
+    it('returns empty array when response is not ok', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: false, status: 404 }),
+      )
+      const groups = await fetchGroups('https://api.census.gov/data/2019/acs/acs1/groups.json')
+      expect(groups).toEqual([])
+    })
+
+    it('returns empty array on network error', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')))
+      const groups = await fetchGroups('https://api.census.gov/data/2019/acs/acs1/groups.json')
+      expect(groups).toEqual([])
+    })
+
+    it('returns empty array when groups field is missing', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({}),
+        }),
+      )
+      const groups = await fetchGroups('https://api.census.gov/data/2019/acs/acs1/groups.json')
+      expect(groups).toEqual([])
+    })
+  })
+
   describe('beforeSeed', () => {
-    it('calls transformDataTableData with correct raw data', () => {
-      const dataCopy = [...rawConceptData]
+    it('fetches groups for each aggregate dataset and replaces rawData with deduped tables', async () => {
+      const rawData: unknown[] = [
+        makeDataset({ identifier: 'http://api.census.gov/data/id/ACSDT1Y2019' }),
+        makeDataset({ identifier: 'http://api.census.gov/data/id/ACSDT1Y2018' }),
+      ]
 
-      vi.mocked(transformDataTableData).mockReturnValue(transformedData)
+      await DataTablesConfig.beforeSeed!(mockClient as Client, rawData)
 
-      DataTablesConfig.beforeSeed!(mockClient as Client, dataCopy)
-
-      expect(transformDataTableData).toHaveBeenCalledTimes(1)
-      expect(transformDataTableData).toHaveBeenCalledWith(dataCopy)
+      // Two datasets fetched groups from the same two tables — rawData should have 2 deduped tables
+      expect(rawData).toHaveLength(2)
+      expect(rawData).toContainEqual(
+        expect.objectContaining({ data_table_id: 'B25032' }),
+      )
+      expect(rawData).toContainEqual(
+        expect.objectContaining({ data_table_id: 'B19013' }),
+      )
     })
 
-    it('transforms and replaces data with dataTables only', () => {
-      const dataCopy = [...rawConceptData]
+    it('constructs the correct groups URL from dataset vintage and param', async () => {
+      const rawData: unknown[] = [
+        makeDataset({
+          identifier: 'http://api.census.gov/data/id/ACSDT5Y2022',
+          c_dataset: ['acs', 'acs5'],
+          c_vintage: 2022,
+        }),
+      ]
 
-      vi.mocked(transformDataTableData).mockReturnValue(transformedData)
+      await DataTablesConfig.beforeSeed!(mockClient as Client, rawData)
 
-      DataTablesConfig.beforeSeed!(mockClient as Client, dataCopy)
-
-      expect(dataCopy).toHaveLength(transformedData.dataTables.length)
-      expect(dataCopy[0]).toEqual(transformedData.dataTables[0])
-      expect(dataCopy[1]).toEqual(transformedData.dataTables[1])
+      expect(fetch).toHaveBeenCalledWith(
+        'https://api.census.gov/data/2022/acs/acs5/groups.json',
+        expect.any(Object),
+      )
     })
 
-    it('clears original data before pushing transformed data', () => {
-      const dataCopy = [...rawConceptData]
-      const lengthSpy = vi.fn()
+    it('extracts datasetId from the last path segment of identifier', async () => {
+      const rawData: unknown[] = [
+        makeDataset({ identifier: 'http://api.census.gov/data/id/ACSDT1Y2019' }),
+      ]
 
-      vi.mocked(transformDataTableData).mockImplementation((data) => {
-        lengthSpy((data as unknown[]).length)
-        return transformedData
+      await DataTablesConfig.beforeSeed!(mockClient as Client, rawData)
+
+      expect(state.capturedRelationships[0].dataset_id).toBe('ACSDT1Y2019')
+    })
+
+    it('skips non-aggregate datasets', async () => {
+      const rawData: unknown[] = [
+        makeDataset({ c_isAggregate: false }),
+        makeDataset({ c_isAggregate: undefined }),
+        { identifier: 'http://api.census.gov/data/id/ACSPUMS1Y2019', c_dataset: ['acs', 'acs1'], c_vintage: 2019 },
+      ]
+
+      await DataTablesConfig.beforeSeed!(mockClient as Client, rawData)
+
+      expect(fetch).not.toHaveBeenCalled()
+      expect(rawData).toHaveLength(0)
+      expect(state.capturedRelationships).toHaveLength(0)
+    })
+
+    it('populates capturedRelationships with one entry per group per dataset', async () => {
+      const rawData: unknown[] = [
+        makeDataset({ identifier: 'http://api.census.gov/data/id/ACSDT1Y2019' }),
+        makeDataset({ identifier: 'http://api.census.gov/data/id/ACSDT1Y2018' }),
+      ]
+
+      await DataTablesConfig.beforeSeed!(mockClient as Client, rawData)
+
+      // 2 datasets × 2 groups = 4 relationships
+      expect(state.capturedRelationships).toHaveLength(4)
+      expect(state.capturedRelationships).toContainEqual({
+        data_table_id: 'B25032',
+        dataset_id: 'ACSDT1Y2019',
+        label: expect.any(String),
       })
+      expect(state.capturedRelationships).toContainEqual({
+        data_table_id: 'B25032',
+        dataset_id: 'ACSDT1Y2018',
+        label: expect.any(String),
+      })
+    })
 
-      DataTablesConfig.beforeSeed!(mockClient as Client, dataCopy)
+    it('skips groups with empty name or description', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              groups: [
+                { name: '', description: 'Empty name' },
+                { name: 'B25032', description: '' },
+                { name: 'B19013', description: 'MEDIAN HOUSEHOLD INCOME' },
+              ],
+            }),
+        }),
+      )
 
-      // Verify data was passed with original length
-      expect(lengthSpy).toHaveBeenCalledWith(rawConceptData.length)
+      const rawData: unknown[] = [makeDataset()]
+      await DataTablesConfig.beforeSeed!(mockClient as Client, rawData)
 
-      // Verify final data matches transformed dataTables
-      expect(dataCopy).toEqual(transformedData.dataTables)
+      expect(rawData).toHaveLength(1)
+      expect((rawData[0] as { data_table_id: string }).data_table_id).toBe('B19013')
+    })
+
+    it('deduplicates tables that appear in multiple datasets', async () => {
+      const rawData: unknown[] = [
+        makeDataset({ identifier: 'http://api.census.gov/data/id/ACSDT1Y2019' }),
+        makeDataset({ identifier: 'http://api.census.gov/data/id/ACSDT5Y2019', c_dataset: ['acs', 'acs5'] }),
+      ]
+
+      await DataTablesConfig.beforeSeed!(mockClient as Client, rawData)
+
+      // Both datasets have B25032 and B19013 — rawData should only have 2 unique tables
+      expect(rawData).toHaveLength(2)
+      const tableIds = (rawData as { data_table_id: string }[]).map((t) => t.data_table_id)
+      expect(new Set(tableIds).size).toBe(2)
+    })
+
+    it('applies titleCase transformation to group descriptions', async () => {
+      const rawData: unknown[] = [makeDataset()]
+      await DataTablesConfig.beforeSeed!(mockClient as Client, rawData)
+
+      const table = rawData.find(
+        (t) => (t as { data_table_id: string }).data_table_id === 'B25032',
+      ) as { label: string }
+      // titleCase converts "TENURE BY UNITS IN STRUCTURE" → title case
+      expect(table.label).toMatch(/^Tenure/)
+      expect(table.label).not.toBe(table.label.toUpperCase())
     })
   })
 
@@ -143,7 +258,6 @@ describe('DataTables Config', () => {
 
       const mockQuery = mockClient.query as ReturnType<typeof vi.fn>
 
-      // Mock the ID lookup queries
       mockQuery
         .mockResolvedValueOnce({
           rows: [{ id: 1, data_table_id: 'B16005D' }],
@@ -155,15 +269,13 @@ describe('DataTables Config', () => {
 
       await DataTablesConfig.afterSeed!(mockClient as Client)
 
-      // Should have been called 3 times (2 lookups + 1 insert)
       expect(mockQuery).toHaveBeenCalledTimes(3)
 
-      // Verify the insert query has numeric IDs
       const insertCall = mockQuery.mock.calls[2]
       const insertParams = insertCall[1]
 
-      expect(insertParams[0]).toBe(1) // numeric data_table_id
-      expect(insertParams[1]).toBe(10) // numeric dataset_id
+      expect(insertParams[0]).toBe(1)
+      expect(insertParams[1]).toBe(10)
       expect(insertParams[2]).toBe('Nativity by Language Spoken at Home')
     })
 
@@ -174,7 +286,6 @@ describe('DataTables Config', () => {
 
       await DataTablesConfig.afterSeed!(mockClient as Client)
 
-      // Should not execute any queries
       expect(mockQuery).not.toHaveBeenCalled()
     })
 
@@ -193,7 +304,7 @@ describe('DataTables Config', () => {
         .mockImplementation(() => {})
 
       mockQuery
-        .mockResolvedValueOnce({ rows: [] }) // No matching data_table
+        .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({
           rows: [{ id: 10, dataset_id: 'ACSDT5Y2009' }],
         })
@@ -206,14 +317,12 @@ describe('DataTables Config', () => {
         ),
       )
 
-      // Should only call lookup queries, not insert
       expect(mockQuery).toHaveBeenCalledTimes(2)
 
       consoleWarnSpy.mockRestore()
     })
 
-    it('should reset the capturedRelationships after inserting data', async () => {
-      // Set up captured relationships with string IDs
+    it('should reset capturedRelationships after inserting', async () => {
       state.capturedRelationships = [
         {
           data_table_id: 'B16005D',
@@ -225,20 +334,16 @@ describe('DataTables Config', () => {
       const mockQuery = mockClient.query as ReturnType<typeof vi.fn>
 
       mockQuery
-        .mockResolvedValueOnce({
-          rows: [{ id: 1, data_table_id: 'B16005D' }],
-        }) // data_tables lookup
-        .mockResolvedValueOnce({
-          rows: [{ id: 10, dataset_id: 'ACSDT5Y2009' }],
-        }) // datasets lookup
-        .mockResolvedValueOnce({ rows: [] }) // insert
+        .mockResolvedValueOnce({ rows: [{ id: 1, data_table_id: 'B16005D' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 10, dataset_id: 'ACSDT5Y2009' }] })
+        .mockResolvedValueOnce({ rows: [] })
 
       await DataTablesConfig.afterSeed!(mockClient as Client)
 
       expect(state.capturedRelationships).toEqual([])
     })
 
-    it('should insert into data_tables_datasets table', async () => {
+    it('should insert into data_table_datasets with correct SQL', async () => {
       state.capturedRelationships = [
         {
           data_table_id: 'B16005D',
@@ -250,58 +355,19 @@ describe('DataTables Config', () => {
       const mockQuery = mockClient.query as ReturnType<typeof vi.fn>
 
       mockQuery
-        .mockResolvedValueOnce({
-          rows: [{ id: 1, data_table_id: 'B16005D' }],
-        }) // data_tables lookup
-        .mockResolvedValueOnce({
-          rows: [{ id: 10, dataset_id: 'ACSDT5Y2009' }],
-        }) // datasets lookup
-        .mockResolvedValueOnce({ rows: [] }) // insert
-
-      await DataTablesConfig.afterSeed!(mockClient as Client)
-
-      // Verify the insert query targets the correct table
-      const insertCall = mockQuery.mock.calls[2]
-      const insertSQL = insertCall[0]
-
-      expect(insertSQL).toContain('INSERT INTO data_table_datasets')
-      expect(insertSQL).toContain('(data_table_id, dataset_id, label)')
-      expect(insertSQL).toContain(
-        'ON CONFLICT (data_table_id, dataset_id) DO NOTHING',
-      )
-    })
-
-    it('should include all three columns in the insert', async () => {
-      state.capturedRelationships = [
-        {
-          data_table_id: 'B16005D',
-          dataset_id: 'ACSDT5Y2009',
-          label: 'Nativity by Language Spoken at Home',
-        },
-      ]
-
-      const mockQuery = mockClient.query as ReturnType<typeof vi.fn>
-
-      mockQuery
-        .mockResolvedValueOnce({
-          rows: [{ id: 1, data_table_id: 'B16005D' }],
-        })
-        .mockResolvedValueOnce({
-          rows: [{ id: 10, dataset_id: 'ACSDT5Y2009' }],
-        })
+        .mockResolvedValueOnce({ rows: [{ id: 1, data_table_id: 'B16005D' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 10, dataset_id: 'ACSDT5Y2009' }] })
         .mockResolvedValueOnce({ rows: [] })
 
       await DataTablesConfig.afterSeed!(mockClient as Client)
 
-      const insertCall = mockQuery.mock.calls[2]
-      const insertSQL = insertCall[0]
-
-      // Verify all three columns are included
-      expect(insertSQL).toMatch(/data_table_id.*dataset_id.*label/)
+      const insertSQL = mockQuery.mock.calls[2][0]
+      expect(insertSQL).toContain('INSERT INTO data_table_datasets')
+      expect(insertSQL).toContain('(data_table_id, dataset_id, label)')
+      expect(insertSQL).toContain('ON CONFLICT (data_table_id, dataset_id) DO NOTHING')
     })
 
     it('should process large batches correctly', async () => {
-      // Create 10,000 relationships to test batching (BATCH_SIZE = 5000)
       const manyRelationships = Array.from({ length: 10000 }, (_, i) => ({
         data_table_id: `TABLE_${i % 100}`,
         dataset_id: `DATASET_${i % 50}`,
@@ -312,46 +378,23 @@ describe('DataTables Config', () => {
 
       const mockQuery = mockClient.query as ReturnType<typeof vi.fn>
 
-      // Mock lookup queries - return mock IDs for all unique tables/datasets
-      const uniqueTableIds = [
-        ...new Set(manyRelationships.map((r) => r.data_table_id)),
-      ]
-      const uniqueDatasetIds = [
-        ...new Set(manyRelationships.map((r) => r.dataset_id)),
-      ]
+      const uniqueTableIds = [...new Set(manyRelationships.map((r) => r.data_table_id))]
+      const uniqueDatasetIds = [...new Set(manyRelationships.map((r) => r.dataset_id))]
 
       mockQuery
         .mockResolvedValueOnce({
-          rows: uniqueTableIds.map((id, idx) => ({
-            id: idx + 1,
-            data_table_id: id,
-          })),
-        }) // data_tables lookup
+          rows: uniqueTableIds.map((id, idx) => ({ id: idx + 1, data_table_id: id })),
+        })
         .mockResolvedValueOnce({
-          rows: uniqueDatasetIds.map((id, idx) => ({
-            id: idx + 1,
-            dataset_id: id,
-          })),
-        }) // datasets lookup
-
-      // Mock insert queries for each batch
-      mockQuery
-        .mockResolvedValueOnce({ rows: [] }) // batch 1
-        .mockResolvedValueOnce({ rows: [] }) // batch 2
+          rows: uniqueDatasetIds.map((id, idx) => ({ id: idx + 1, dataset_id: id })),
+        })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
 
       await DataTablesConfig.afterSeed!(mockClient as Client)
 
-      // Should have 2 lookups + 2 insert batches = 4 calls
+      // 2 lookups + 2 batches
       expect(mockQuery).toHaveBeenCalledTimes(4)
-
-      // Verify both inserts happened
-      const insertCall1 = mockQuery.mock.calls[2]
-      const insertCall2 = mockQuery.mock.calls[3]
-
-      expect(insertCall1[0]).toContain('INSERT INTO data_table_datasets')
-      expect(insertCall2[0]).toContain('INSERT INTO data_table_datasets')
-
-      // Verify state was cleared
       expect(state.capturedRelationships).toEqual([])
     })
   })

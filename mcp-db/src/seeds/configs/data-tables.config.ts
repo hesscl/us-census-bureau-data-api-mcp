@@ -1,36 +1,123 @@
 import { Client } from 'pg'
+import { titleCase } from 'title-case'
+
 import { SeedConfig } from '../../schema/seed-config.schema.js'
 import {
-  transformDataTableData,
   DataTableDatasetRecord,
+  DataTableRecord,
 } from '../../schema/data-table.schema.js'
+
+interface ApiDatasetRaw {
+  identifier: string
+  c_dataset: string[]
+  c_vintage: number | string
+  c_isAggregate?: boolean
+}
+
+interface CensusGroup {
+  name: string
+  description: string
+}
+
+interface GroupsResponse {
+  groups?: CensusGroup[]
+}
 
 // Use an object so tests can mutate it
 export const state = {
   capturedRelationships: [] as DataTableDatasetRecord[],
 }
 
+const CONCURRENCY = 10
+
+export function isValidDataset(item: unknown): item is ApiDatasetRaw {
+  if (typeof item !== 'object' || item === null) return false
+  const d = item as Record<string, unknown>
+  return (
+    typeof d.identifier === 'string' &&
+    Array.isArray(d.c_dataset) &&
+    (d.c_dataset as unknown[]).length > 0 &&
+    d.c_vintage != null &&
+    d.c_isAggregate === true
+  )
+}
+
+export async function fetchGroups(url: string): Promise<CensusGroup[]> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+    if (!res.ok) return []
+    const data = (await res.json()) as GroupsResponse
+    return Array.isArray(data.groups) ? data.groups : []
+  } catch {
+    return []
+  }
+}
+
+export async function fetchAllDatasetGroups(
+  datasets: ApiDatasetRaw[],
+  concurrency: number,
+): Promise<{ datasetId: string; groups: CensusGroup[] }[]> {
+  const results: { datasetId: string; groups: CensusGroup[] }[] = new Array(
+    datasets.length,
+  )
+  let index = 0
+
+  async function worker() {
+    while (index < datasets.length) {
+      const i = index++
+      const dataset = datasets[i]
+      const datasetId = dataset.identifier.split('/').pop()!
+      const url = `https://api.census.gov/data/${dataset.c_vintage}/${dataset.c_dataset.join('/')}/groups.json`
+      results[i] = { datasetId, groups: await fetchGroups(url) }
+      if ((i + 1) % 10 === 0 || i + 1 === datasets.length) {
+        console.log(`  Fetched groups for ${i + 1}/${datasets.length} datasets`)
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: concurrency }, worker))
+  return results
+}
+
 export const DataTablesConfig: SeedConfig = {
-  file: 'concept.csv',
+  url: 'https://api.census.gov/data/',
   table: 'data_tables',
   conflictColumn: 'data_table_id',
-  beforeSeed: (client: Client, rawData: unknown[]): void => {
-    const { dataTables, relationships } = transformDataTableData(rawData)
+  dataPath: 'dataset',
+  alwaysFetch: true,
+  beforeSeed: async (_client: Client, rawData: unknown[]): Promise<void> => {
+    const datasets = rawData.filter(isValidDataset)
+    console.log(`Fetching groups for ${datasets.length} aggregate datasets...`)
 
-    // Store relationships for afterSeed
+    const allResults = await fetchAllDatasetGroups(datasets, CONCURRENCY)
+    const uniqueTables = new Map<string, DataTableRecord>()
+    const relationships: DataTableDatasetRecord[] = []
+
+    for (const { datasetId, groups } of allResults) {
+      for (const group of groups) {
+        if (!group.name?.trim() || !group.description?.trim()) continue
+        const label = titleCase(group.description.toLowerCase())
+        if (!uniqueTables.has(group.name)) {
+          uniqueTables.set(group.name, { data_table_id: group.name, label })
+        }
+        relationships.push({ data_table_id: group.name, dataset_id: datasetId, label })
+      }
+    }
+
     state.capturedRelationships = relationships
-
-    // Replace rawData with deduplicated data tables
     rawData.length = 0
-    rawData.push(...dataTables)
+    rawData.push(...Array.from(uniqueTables.values()))
+    console.log(
+      `Collected ${uniqueTables.size} unique tables across ${relationships.length} dataset-table relationships`,
+    )
   },
+
   afterSeed: async (client: Client): Promise<void> => {
     if (state.capturedRelationships.length === 0) {
       console.log('No data_table <-> dataset relationships to insert')
       return
     }
 
-    // Build ID maps (your existing code)
     const dataTableIds = [
       ...new Set(state.capturedRelationships.map((r) => r.data_table_id)),
     ]
@@ -56,7 +143,6 @@ export const DataTablesConfig: SeedConfig = {
       datasetQuery.rows.map((row) => [row.dataset_id, parseInt(row.id, 10)]),
     )
 
-    // Map string IDs to numeric IDs (your existing code)
     const joinRecords = state.capturedRelationships
       .map((rel) => {
         const dataTableNumericId = dataTableIdMap.get(rel.data_table_id)
@@ -89,7 +175,6 @@ export const DataTablesConfig: SeedConfig = {
       return
     }
 
-    // Manual batching - no SeedRunner needed
     const BATCH_SIZE = 5000
     const totalBatches = Math.ceil(joinRecords.length / BATCH_SIZE)
 
@@ -123,7 +208,6 @@ export const DataTablesConfig: SeedConfig = {
 
       await client.query(query, values.flat())
 
-      // Small delay between batches
       if (i + BATCH_SIZE < joinRecords.length) {
         await new Promise((resolve) => setTimeout(resolve, 100))
       }
