@@ -90,10 +90,17 @@ export const baseFields = {
   dataset: z.string(),
   descriptive: z.boolean().optional(),
   predicates: z
-    .record(
-      z.string().regex(PREDICATE_KEY_PATTERN, 'Predicate keys must be alphanumeric'),
-      z.string(),
-    )
+    .record(z.string(), z.string())
+    .superRefine((val, ctx) => {
+      for (const key of Object.keys(val)) {
+        if (!PREDICATE_KEY_PATTERN.test(key)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Predicate key "${key}" must be alphanumeric (letters, digits, underscores only)`,
+          })
+        }
+      }
+    })
     .optional(),
 }
 

@@ -36,6 +36,7 @@ export class MCPServer {
       return await this.getTools()
     })
 
+    // @ts-ignore TS2589: SDK 1.27.x Zod v4 types exceed TS inference depth limit
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return await this.handleToolCall(request)
     })
